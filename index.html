@@ -1,0 +1,235 @@
+<!-- ... existing code ... -->
+        .combo-box { font-family: 'Rajdhani', sans-serif; font-size: 3rem; font-weight: 700; color: #fff; line-height: 1; }
+        .combo-label { font-size: 0.8rem; letter-spacing: 3px; color: rgba(255,255,255,0.7); }
+
+        .touch-zone { position: absolute; width: 100%; height: 100%; z-index: 4; cursor: pointer; touch-action: none; }
+        #touch-zone-full { top: 0; left: 0; }
+
+        /* リザルト・設定 */
+<!-- ... existing code ... -->
+        <div id="canvas-container">
+            <canvas id="gameCanvas"></canvas>
+        </div>
+        <div id="touch-zone-full" class="touch-zone"></div>
+    </div>
+
+    <!-- リザルト画面 -->
+<!-- ... existing code ... -->
+let resultColor = "#fff";
+let resultTimer = 0;
+let lineHitEffectTimer = 0;
+
+// 入力状態の追跡（LONG, TRACEノーツ用：4レーン）
+const inputState = [false, false, false, false];
+
+const canvas = document.getElementById('gameCanvas');
+const ctx = canvas.getContext('2d');
+<!-- ... existing code ... -->
+    }
+}
+
+// 判定閾値（ピクセル単位）を大幅に緩和
+function judge_from_diff(diffPixels) {
+    if (diffPixels < 50) return ["PERFECT", 1000];
+    if (diffPixels < 100) return ["GREAT", 700];
+    if (diffPixels < 160) return ["GOOD", 400];
+    if (diffPixels < 220) return ["BAD", 100];
+    return ["MISS", 0];
+}
+
+// ノーツの現在Y位置を取得する共通計算関数
+function getNoteY(note, elapsedTime) {
+    const pxPerSec = noteSpeed * 140 * DIFF_CONFIGS[selectedDiff].speedMult;
+    const timeDiff = note.time - elapsedTime;
+    return note.dir === 'UP' ? targetY - (timeDiff * pxPerSec) : targetY + (timeDiff * pxPerSec);
+}
+
+function getNoteYByTime(time, dir, elapsedTime) {
+    const pxPerSec = noteSpeed * 140 * DIFF_CONFIGS[selectedDiff].speedMult;
+    const timeDiff = time - elapsedTime;
+    return dir === 'UP' ? targetY - (timeDiff * pxPerSec) : targetY + (timeDiff * pxPerSec);
+}
+
+// レーン基準の打鍵判定処理 (Phigros風：上下問わずレーンが合っていれば判定)
+function check_hit_lane(lane) {
+    if (!isPlaying || !audioCtx || isAutoPlay) return;
+
+    const elapsedTime = audioCtx.currentTime - startTime;
+    // NORMAL, FLICK, およびまだホールド開始していないLONGノーツを判定対象にする（UP/DOWN区別なし）
+    const candidates = arrowList.filter(a => a.active && a.lane === lane && a.type !== 'TRACE' && !a.isHolding);
+    if (!candidates.length) return;
+
+    let target = null;
+    let minDiff = Infinity;
+
+    for (let candidate of candidates) {
+        const currentY = getNoteY(candidate, elapsedTime);
+        const diff = Math.abs(currentY - targetY);
+        if (diff < minDiff) {
+            minDiff = diff;
+            target = candidate;
+        }
+    }
+
+    // 有効判定幅を拡大 (220px)
+    if (!target || minDiff > 220) return;
+
+    const [name, pts] = judge_from_diff(minDiff);
+
+    if (name === "MISS") {
+<!-- ... existing code ... -->
+    arrowList.forEach(note => {
+        if (!note.active) return;
+        note.y = getNoteY(note, elapsedTime);
+        const timeDiff = note.time - elapsedTime;
+
+        if (note.type === 'TRACE') {
+            // TRACE: 判定線を通過中で、対応キーが押されていれば（またはAutoPlayなら）ヒット
+            if (timeDiff <= 0.1 && timeDiff > -0.15) { // 判定緩和
+                if (isAutoPlay || inputState[note.lane]) {
+                    note.active = false;
+                    resultTxt = "PERFECT";
+                    resultColor = "#00f0ff";
+<!-- ... existing code ... -->
+            } else {
+                // ホールド中
+                const endTimeDiff = (note.time + note.duration) - elapsedTime;
+                
+                // 途中で離してしまった場合
+                if (!isAutoPlay && !inputState[note.lane]) {
+                    note.active = false; resultTxt = "MISS"; resultColor = "#ff4444";
+                    combo = 0; resultTimer = 30; judgesCount.MISS++; updateHUD();
+                } else {
+<!-- ... existing code ... -->
+    ctx.translate(x, note.y);
+
+    let mainColor = note.dir === 'UP' ? '#00f0ff' : '#ff007f';
+    let edgeColor = '#ffffff';
+
+    if (note.type === 'FLICK') {
+        mainColor = '#facc15'; // フリックは強烈なイエローにして見分けやすく
+    } else if (note.type === 'TRACE') {
+        mainColor = '#4ade80'; // トレースは緑系
+        edgeColor = '#22c55e';
+    }
+
+    ctx.shadowColor = mainColor;
+    ctx.shadowBlur = note.type === 'TRACE' ? 10 : 15;
+<!-- ... existing code ... -->
+    ctx.fill();
+    ctx.stroke();
+
+    // 矢印インジケーター（TRACEには描画しない）
+    if (note.type !== 'TRACE') {
+        ctx.fillStyle = note.type === 'FLICK' ? '#000000' : '#ffffff'; // フリックは黄色に映える黒
+        ctx.beginPath();
+        const arrowSize = note.type === 'FLICK' ? 12 : 8; // フリックは矢印も大きく
+        
+        if (note.type === 'FLICK') {
+            // フリックは左右の大きめの矢印
+            ctx.moveTo(-arrowSize * 0.5, 0);
+            ctx.lineTo(-arrowSize * 2.5, -arrowSize * 0.7);
+            ctx.lineTo(-arrowSize * 2.5, arrowSize * 0.7);
+            ctx.moveTo(arrowSize * 0.5, 0);
+            ctx.lineTo(arrowSize * 2.5, -arrowSize * 0.7);
+            ctx.lineTo(arrowSize * 2.5, arrowSize * 0.7);
+        } else if (note.dir === 'UP') {
+            ctx.moveTo(0, arrowSize/2);
+            ctx.lineTo(-arrowSize, -arrowSize/2);
+            ctx.lineTo(arrowSize, -arrowSize/2);
+        } else {
+<!-- ... existing code ... -->
+    document.getElementById('result-autoplay-tag').style.display = isAutoPlay ? 'block' : 'none';
+    showScreen('result-screen');
+}
+
+// キーボード制御 (D, F, J, K をレーン 0, 1, 2, 3 に割り当て)
+const KEY_MAP = {
+    'd': 0, 'D': 0,
+    'f': 1, 'F': 1,
+    'j': 2, 'J': 2,
+    'k': 3, 'K': 3
+};
+
+window.addEventListener('keydown', (e) => {
+    if (e.repeat) return;
+    const lane = KEY_MAP[e.key];
+    if (lane !== undefined) {
+        inputState[lane] = true;
+        check_hit_lane(lane);
+    }
+});
+window.addEventListener('keyup', (e) => {
+    const lane = KEY_MAP[e.key];
+    if (lane !== undefined) {
+        inputState[lane] = false;
+    }
+});
+
+// タッチ/マウス制御 (Phigros風レーン判定)
+const tZone = document.getElementById('touch-zone-full');
+
+function getLaneFromX(x) {
+    const rect = canvas.getBoundingClientRect();
+    const scaleX = canvas.width / rect.width;
+    const canvasX = (x - rect.left) * scaleX;
+    const laneWidth = canvas.width / 4;
+    let lane = Math.floor(canvasX / laneWidth);
+    if (lane < 0) lane = 0;
+    if (lane > 3) lane = 3;
+    return lane;
+}
+
+function handleTouch(e) {
+    for(let i=0; i<4; i++) inputState[i] = false;
+    for (let i = 0; i < e.touches.length; i++) {
+        const lane = getLaneFromX(e.touches[i].clientX);
+        inputState[lane] = true;
+    }
+}
+
+tZone.addEventListener('touchstart', (e) => {
+    e.preventDefault();
+    handleTouch(e);
+    // 新しくタッチされた指についてのみヒットチェック
+    for (let i = 0; i < e.changedTouches.length; i++) {
+        const lane = getLaneFromX(e.changedTouches[i].clientX);
+        check_hit_lane(lane);
+    }
+}, {passive: false});
+
+tZone.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    handleTouch(e);
+}, {passive: false});
+
+tZone.addEventListener('touchend', (e) => {
+    e.preventDefault();
+    handleTouch(e);
+}, {passive: false});
+
+tZone.addEventListener('touchcancel', (e) => {
+    e.preventDefault();
+    handleTouch(e);
+}, {passive: false});
+
+// マウスイベント
+tZone.addEventListener('mousedown', (e) => {
+    e.preventDefault();
+    const lane = getLaneFromX(e.clientX);
+    inputState[lane] = true;
+    check_hit_lane(lane);
+});
+tZone.addEventListener('mouseup', (e) => {
+    e.preventDefault();
+    const lane = getLaneFromX(e.clientX);
+    inputState[lane] = false;
+});
+tZone.addEventListener('mouseleave', (e) => {
+    e.preventDefault();
+    for(let i=0; i<4; i++) inputState[i] = false;
+});
+
+</script>
+</body>
+</html>
